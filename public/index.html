@@ -1,0 +1,1175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<title>AsphaltIQ — Road Recording Prototype</title>
+
+<link rel="stylesheet"
+ href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+
+<style>
+*{box-sizing:border-box}
+body{
+  margin:0;background:#f2f5f9;color:#17293e;
+  font:15px system-ui,Arial,sans-serif
+}
+header{
+  padding:25px 5%;background:#12243a;color:white;
+  display:flex;justify-content:space-between;align-items:center;gap:15px
+}
+h1{margin:0;font-size:29px}
+h1 span{color:#48d8bf}
+header p{color:#c0ccdc;margin:7px 0 0}
+.badge{
+  padding:8px 12px;background:#29425b;border-radius:20px;
+  font-size:12px;white-space:nowrap
+}
+main{max-width:1180px;margin:auto;padding:22px}
+.card{
+  padding:22px;margin-bottom:18px;background:white;
+  border:1px solid #dfe6ef;border-radius:14px
+}
+.notice{background:#fff4dc;border-color:#ecd49d;line-height:1.7}
+h2{font-size:19px;margin:0 0 15px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+label{display:block;font-size:13px;font-weight:600}
+input,button{
+  font:inherit;padding:10px;border:1px solid #bfccda;
+  border-radius:8px;max-width:100%
+}
+input[type=file]{width:100%;margin-top:8px;background:#f8fafc}
+input[type=number]{display:block;width:180px;margin-top:8px}
+button{background:#087f73;color:white;cursor:pointer;border-color:#087f73}
+button:hover{background:#09675e}
+button:disabled{opacity:.5;cursor:default}
+button.secondary{background:white;color:#17293e;border-color:#bfccda}
+button:focus-visible,input:focus-visible{
+  outline:3px solid #75bce8;outline-offset:2px
+}
+.buttons{display:flex;gap:10px;flex-wrap:wrap;margin-top:15px}
+.muted{color:#60738a;font-size:13px;line-height:1.65}
+.status{white-space:pre-wrap;line-height:1.7;margin-bottom:0}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.stat{background:#f3f6fa;padding:15px;border-radius:10px}
+.stat strong{display:block;font-size:27px;margin-top:7px}
+#map{height:440px;border-radius:10px;background:#e7edf3}
+.legend{display:flex;gap:16px;flex-wrap:wrap;margin:12px 0;font-size:12px}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px}
+#slider{width:100%;padding:0;margin:18px 0}
+#reading{
+  white-space:pre-wrap;line-height:1.8;background:#f3f6fa;
+  padding:15px;border-radius:9px
+}
+canvas{width:100%;height:240px;display:block;margin-top:15px}
+.scroll{overflow:auto;max-height:340px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+td,th{padding:11px 9px;text-align:left;border-bottom:1px solid #e6ecf3}
+th{background:#f3f6fa;white-space:nowrap}
+td button{padding:5px 10px;font-size:12px}
+footer{text-align:center;color:#60738a;padding:22px;font-size:12px}
+[hidden]{display:none!important}
+@media(max-width:750px){
+  .grid{grid-template-columns:1fr}
+  .stats{grid-template-columns:repeat(2,1fr)}
+  main{padding:12px}
+  header{align-items:flex-start;flex-direction:column}
+}
+</style>
+</head>
+
+<body>
+<header>
+<div>
+<h1>Asphalt<span>IQ</span></h1>
+<p>Smartphone vibration and GPS recording explorer</p>
+</div>
+<span class="badge">REVIEW 2 PROTOTYPE</span>
+</header>
+
+<main>
+<section class="card notice">
+<strong>Experimental prototype:</strong>
+Upload real smartphone recordings to explore vibrations and GPS locations.
+Candidate detection uses a statistical vibration rule, not a trained
+pothole classifier. Speed bumps, phone handling, and other movements
+can also trigger it.
+</section>
+
+
+<section class="card" aria-labelledby="backendHeading">
+<h2 id="backendHeading">Shared backend</h2>
+<p class="muted">Save recordings and candidate results so your team can reopen them.
+Saving uploads the selected CSV contents to the backend. Local inspection below stays in your browser.</p>
+<div class="grid">
+<label>Backend address<input id="apiBase" type="url" style="display:block;width:100%;margin-top:8px" spellcheck="false"></label>
+<label>Team access key<input id="teamKey" type="password" autocomplete="off" style="display:block;width:100%;margin-top:8px"></label>
+<label>Recording name<input id="recordingName" maxlength="120" value="Phone recording" style="display:block;width:100%;margin-top:8px"></label>
+<label>RMS threshold for server screening — blank means automatic<input id="serverThreshold" type="number" min="0.000001" step="any" placeholder="Automatic"></label>
+<label>Saved recordings<select id="savedRecordings" style="font:inherit;display:block;width:100%;padding:10px;margin-top:8px"></select></label>
+</div>
+<div class="buttons">
+<button id="saveServer">Save recording to backend</button>
+<button id="refreshServer" class="secondary">Connect and refresh</button>
+<button id="openServer" class="secondary" disabled>Open saved recording</button>
+<button id="deleteServer" class="secondary" disabled>Delete saved recording</button>
+</div>
+<div class="buttons">
+<button id="previousServer" class="secondary" disabled>Previous</button>
+<button id="nextServer" class="secondary" disabled>Next</button>
+</div>
+<p id="savedPage" class="muted">Connect to see saved recordings.</p>
+<p id="backendStatus" class="status" role="status">Choose the CSV files in section 1, enter the team key, then save. Leave the server RMS threshold blank for automatic screening.</p>
+</section>
+
+<section class="card">
+<h2>1. Upload your recording</h2>
+
+<div class="grid">
+<label>
+Accelerometer.csv
+<input id="accelFile" type="file" accept=".csv">
+</label>
+<label>
+Location.csv
+<input id="gpsFile" type="file" accept=".csv">
+</label>
+</div>
+
+<p class="muted">
+Choose files from the same Sensor Logger recording.
+Expected acceleration columns: time, x, y, z.
+Expected location columns: time, latitude, longitude.
+The time column must contain integer nanosecond timestamps.
+Maximum file size: 20 MB each.
+</p>
+
+<label>
+Maximum reported GPS horizontal error, metres
+<input id="accuracy" type="number" min="1" max="10000" value="50">
+</label>
+
+<p class="muted">
+GPS fixes above this error limit are excluded.
+Fixes without a reported horizontal error are retained as accuracy unknown.
+Local inspection processes CSV contents in your browser. The Save recording to backend button uploads them to the server.
+Internet is needed for the map library and map tiles.
+</p>
+
+<div class="buttons">
+<button id="load">Load locally</button>
+</div>
+<p id="status" class="status" role="status">
+Choose both files to begin.
+</p>
+</section>
+
+<div id="results" hidden>
+
+<section class="card">
+<div class="stats">
+<div class="stat">
+<span class="muted">Acceleration readings</span>
+<strong id="sampleCount">0</strong>
+</div>
+<div class="stat">
+<span class="muted">Accepted GPS fixes</span>
+<strong id="gpsCount">0</strong>
+</div>
+<div class="stat">
+<span class="muted">Readings matched to GPS</span>
+<strong id="matchedCount">0</strong>
+</div>
+<div class="stat">
+<span class="muted">Candidate events</span>
+<strong id="candidateCount">Not run</strong>
+</div>
+</div>
+</section>
+
+<section class="card">
+<h2>2. Recorded path and candidate events</h2>
+<div id="map"></div>
+
+<div class="legend">
+<span><i class="dot" style="background:#087f73"></i>First GPS fix</span>
+<span><i class="dot" style="background:#6951ba"></i>Last GPS fix</span>
+<span><i class="dot" style="background:#dc4545"></i>Selected reading</span>
+<span><i class="dot" style="background:#ff9f29"></i>Unverified candidate</span>
+</div>
+
+<p id="mapStatus" class="muted" role="status"></p>
+<p class="muted">
+The path joins measured GPS fixes and is not snapped to roads.
+Gaps over 5 seconds are not connected. GPS can drift.
+Orange markers appear only after candidate detection runs.
+</p>
+</section>
+
+<section class="card">
+<h2>3. Inspect an acceleration reading</h2>
+<label for="slider">Move through the recording</label>
+<input id="slider" type="range" min="0" max="0" value="0" step="1">
+<div id="reading"></div>
+
+<canvas id="chart" role="img"
+ aria-label="Acceleration magnitude plotted against elapsed recording time">
+</canvas>
+
+<p class="muted">
+Magnitude is √(x² + y² + z²), using the exported acceleration values.
+No gravity correction is applied. The red line marks the selected reading.
+Long traces use a minimum/maximum envelope to preserve visible peaks.
+</p>
+
+<button id="exportSamples">Export readings with GPS</button>
+</section>
+
+<section class="card">
+<h2>4. Screen for suspected road events</h2>
+
+<p class="muted">
+The rule calculates RMS acceleration magnitude in half-second windows.
+Automatic mode flags windows above the recording's median RMS plus
+six scaled median absolute deviations, with a minimum margin of
+0.5 m/s². Adjacent flagged windows are merged into one candidate.
+This rule has not been validated against pothole labels.
+</p>
+
+<label>
+RMS threshold, m/s² — leave blank for automatic selection
+<input id="threshold" type="number" min="0.01"
+ step="0.1" placeholder="Automatic">
+</label>
+
+<div class="buttons">
+<button id="detect">Find candidates locally</button>
+<button id="rerunServer" disabled>Run and save on backend</button>
+<button id="exportServer" class="secondary" disabled>Export saved candidates</button>
+<button id="exportEvents" class="secondary" disabled>
+Export candidate events
+</button>
+</div>
+
+<p id="eventStatus" class="status" role="status">
+Candidate detection has not been run.
+</p>
+</section>
+
+<section class="card">
+<h2>5. Candidate event reports</h2>
+<p class="muted">
+These are unverified vibration events.
+“Inspect” selects the event's peak acceleration reading.
+Events without a GPS match stay in the table and export, but have no map marker.
+</p>
+
+<div class="scroll">
+<table>
+<thead>
+<tr>
+<th>Event</th>
+<th>Time, s</th>
+<th>Peak, m/s²</th>
+<th>Window RMS, m/s²</th>
+<th>GPS</th>
+<th>Action</th>
+</tr>
+</thead>
+<tbody id="eventRows"></tbody>
+</table>
+</div>
+<p id="emptyEvents" class="muted">No candidate results yet.</p>
+</section>
+
+</div>
+</main>
+
+<footer>
+AsphaltIQ · Recorded data prototype · No confirmed pothole predictions
+</footer>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+"use strict";
+
+const $ = id => document.getElementById(id);
+
+let samples = [];
+let fixes = [];
+let matches = [];
+let candidates = [];
+
+let map = null;
+let routeLayer = null;
+let eventLayer = null;
+let selectedMarker = null;
+
+let chartBins = [];
+let chartBounds = null;
+let loadVersion = 0;
+
+const normalize = value =>
+  value.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+function numeric(value) {
+  if (value == null || String(value).trim() === "") return NaN;
+  const result = Number(value);
+  return Number.isFinite(result) ? result : NaN;
+}
+
+function parseCSV(text) {
+  text = text.replace(/^\uFEFF/, "");
+
+  const data = [];
+  let row = [];
+  let cell = "";
+  let quoted = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+
+    if (c === '"') {
+      if (quoted && text[i + 1] === '"') {
+        cell += '"';
+        i++;
+      } else {
+        quoted = !quoted;
+      }
+    } else if (c === "," && !quoted) {
+      row.push(cell);
+      cell = "";
+    } else if ((c === "\n" || c === "\r") && !quoted) {
+      if (c === "\r" && text[i + 1] === "\n") i++;
+
+      row.push(cell);
+      if (row.some(value => value.trim() !== "")) data.push(row);
+
+      row = [];
+      cell = "";
+    } else {
+      cell += c;
+    }
+  }
+
+  if (quoted) throw new Error("Unclosed quotation mark in CSV.");
+
+  row.push(cell);
+  if (row.some(value => value.trim() !== "")) data.push(row);
+
+  if (data.length < 2)
+    throw new Error("CSV needs column headings and at least one data row.");
+
+  const headers = data.shift().map(value => value.trim());
+
+  if (
+    headers.some(value => !value) ||
+    new Set(headers.map(normalize)).size !== headers.length
+  ) {
+    throw new Error("CSV headings must be nonempty and unique.");
+  }
+
+  return { headers, rows: data };
+}
+
+function column(table, names, required = true) {
+  const index = table.headers.findIndex(header =>
+    names.includes(normalize(header))
+  );
+
+  if (index < 0 && required) {
+    throw new Error(
+      "Missing column: " + names.join(" / ") +
+      ". Found: " + table.headers.join(", ")
+    );
+  }
+
+  return index;
+}
+
+function timestamp(value) {
+  const text = String(value || "").trim();
+
+  if (!/^\d{18,20}$/.test(text))
+    throw new Error("Expected integer nanosecond timestamps in the time column.");
+
+  return BigInt(text);
+}
+
+function elapsedSeconds(value, base) {
+  return Number(timestamp(value) - base) / 1e9;
+}
+
+async function readFile(input) {
+  const file = input.files[0];
+
+  if (!file) throw new Error("Please choose both CSV files.");
+
+  if (file.size > 20 * 1024 * 1024)
+    throw new Error(file.name + " exceeds the 20 MB file limit.");
+
+  return parseCSV(await file.text());
+}
+
+function nearestFix(time) {
+  if (
+    !fixes.length ||
+    time < fixes[0].t ||
+    time > fixes[fixes.length - 1].t
+  ) {
+    return null;
+  }
+
+  let lo = 0;
+  let hi = fixes.length;
+
+  while (lo < hi) {
+    const middle = (lo + hi) >> 1;
+
+    if (fixes[middle].t < time) lo = middle + 1;
+    else hi = middle;
+  }
+
+  let best = fixes[Math.min(lo, fixes.length - 1)];
+
+  if (
+    lo > 0 &&
+    Math.abs(fixes[lo - 1].t - time) < Math.abs(best.t - time)
+  ) {
+    best = fixes[lo - 1];
+  }
+
+  return Math.abs(best.t - time) <= 2 ? best : null;
+}
+
+function clearCandidates() {
+  candidates = [];
+
+  if (eventLayer) {
+    eventLayer.remove();
+    eventLayer = null;
+  }
+
+  $("candidateCount").textContent = "Not run";
+  $("eventRows").replaceChildren();
+  $("emptyEvents").hidden = false;
+  $("emptyEvents").textContent = "No candidate results yet.";
+  $("exportEvents").disabled = true;
+  $("eventStatus").textContent = "Candidate detection has not been run.";
+}
+
+function setupMap() {
+  if (!window.L) {
+    $("mapStatus").textContent =
+      "Map library did not load. Connect to the internet and refresh. " +
+      "Data matching, detection, and exports still work.";
+    return;
+  }
+
+  if (!map) {
+    map = L.map("map");
+
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution:
+        '&copy; <a href="https://www.openstreetmap.org/copyright">' +
+        "OpenStreetMap contributors</a>"
+    })
+    .on("tileerror", () => {
+      $("mapStatus").textContent =
+        "Map tiles failed to load. Check your internet connection and " +
+        "use the hosted HTTPS website rather than opening a local file.";
+    })
+    .addTo(map);
+
+    routeLayer = L.layerGroup().addTo(map);
+  }
+
+  routeLayer.clearLayers();
+  selectedMarker = null;
+
+  map.invalidateSize();
+
+  if (!fixes.length) {
+    map.setView([0, 0], 2);
+    $("mapStatus").textContent =
+      "No usable GPS fixes overlap this acceleration recording.";
+    return;
+  }
+
+  let segment = [];
+
+  function finishSegment() {
+    if (segment.length > 1) {
+      L.polyline(segment, {
+        color: "#087f73",
+        weight: 4
+      }).addTo(routeLayer);
+    }
+    segment = [];
+  }
+
+  fixes.forEach((fix, index) => {
+    if (index && fix.t - fixes[index - 1].t > 5) finishSegment();
+    segment.push([fix.lat, fix.lon]);
+  });
+
+  finishSegment();
+
+  const first = fixes[0];
+  const last = fixes[fixes.length - 1];
+
+  L.circleMarker([first.lat, first.lon], {
+    radius: 7,
+    color: "#087f73",
+    fillOpacity: 1
+  })
+  .bindPopup("First accepted GPS fix")
+  .addTo(routeLayer);
+
+  L.circleMarker([last.lat, last.lon], {
+    radius: 7,
+    color: "#6951ba",
+    fillOpacity: 1
+  })
+  .bindPopup("Last accepted GPS fix")
+  .addTo(routeLayer);
+
+  map.fitBounds(
+    L.latLngBounds(fixes.map(fix => [fix.lat, fix.lon])),
+    { padding: [30, 30], maxZoom: 17 }
+  );
+
+  $("mapStatus").textContent =
+    "Recorded path loaded. Move the slider to inspect matched locations. " +
+    "Run candidate detection to add orange markers.";
+}
+
+function prepareChart() {
+  const binCount = 650;
+
+  chartBins = Array.from(
+    { length: binCount },
+    () => ({ lo: Infinity, hi: -Infinity })
+  );
+
+  const duration = samples[samples.length - 1].t || 1;
+
+  let minimum = Infinity;
+  let maximum = -Infinity;
+
+  samples.forEach(sample => {
+    const index = Math.min(
+      binCount - 1,
+      Math.floor(sample.t / duration * binCount)
+    );
+
+    chartBins[index].lo = Math.min(chartBins[index].lo, sample.magnitude);
+    chartBins[index].hi = Math.max(chartBins[index].hi, sample.magnitude);
+
+    minimum = Math.min(minimum, sample.magnitude);
+    maximum = Math.max(maximum, sample.magnitude);
+  });
+
+  const margin = (maximum - minimum) * 0.1 || 1;
+
+  chartBounds = {
+    duration,
+    minimum: minimum - margin,
+    maximum: maximum + margin
+  };
+}
+
+function drawChart(selected) {
+  const canvas = $("chart");
+  const width = Math.max(300, canvas.clientWidth);
+  const height = 240;
+  const ratio = window.devicePixelRatio || 1;
+
+  canvas.width = width * ratio;
+  canvas.height = height * ratio;
+
+  const context = canvas.getContext("2d");
+  context.scale(ratio, ratio);
+
+  const left = 55;
+  const right = width - 20;
+  const top = 15;
+  const bottom = 195;
+
+  const yPixel = value =>
+    bottom -
+    (value - chartBounds.minimum) /
+    (chartBounds.maximum - chartBounds.minimum) *
+    (bottom - top);
+
+  context.font = "11px system-ui";
+
+  for (let i = 0; i <= 4; i++) {
+    const value =
+      chartBounds.minimum +
+      (chartBounds.maximum - chartBounds.minimum) * i / 4;
+
+    context.strokeStyle = "#e3e9f1";
+    context.beginPath();
+    context.moveTo(left, yPixel(value));
+    context.lineTo(right, yPixel(value));
+    context.stroke();
+
+    context.fillStyle = "#60738a";
+    context.fillText(value.toFixed(1), 3, yPixel(value) + 4);
+
+    context.fillText(
+      (chartBounds.duration * i / 4).toFixed(1) + "s",
+      left + (right - left) * i / 4 - 12,
+      bottom + 23
+    );
+  }
+
+  context.strokeStyle = "#087f73";
+  context.lineWidth = 1;
+  context.beginPath();
+
+  chartBins.forEach((bin, index) => {
+    if (bin.lo === Infinity) return;
+
+    const x =
+      left + index / (chartBins.length - 1) * (right - left);
+
+    const y1 = yPixel(bin.hi);
+    const y2 = yPixel(bin.lo);
+
+    context.moveTo(x, y1);
+    context.lineTo(x, Math.max(y1 + 0.8, y2));
+  });
+
+  context.stroke();
+
+  const selectedX =
+    left + selected.t / chartBounds.duration * (right - left);
+
+  context.strokeStyle = "#dc4545";
+  context.lineWidth = 1.5;
+  context.beginPath();
+  context.moveTo(selectedX, top);
+  context.lineTo(selectedX, bottom);
+  context.stroke();
+}
+
+function showReading() {
+  if (!samples.length) return;
+
+  const index = Number($("slider").value);
+  const sample = samples[index];
+  const fix = matches[index];
+
+  let text =
+    `Reading ${index + 1} of ${samples.length}\n` +
+    `Elapsed: ${sample.t.toFixed(3)} seconds\n` +
+    `x: ${sample.x.toFixed(4)}   ` +
+    `y: ${sample.y.toFixed(4)}   ` +
+    `z: ${sample.z.toFixed(4)} m/s²\n` +
+    `Magnitude: ${sample.magnitude.toFixed(4)} m/s²\n`;
+
+  if (fix) {
+    text +=
+      `Latitude: ${fix.lat.toFixed(7)}   ` +
+      `Longitude: ${fix.lon.toFixed(7)}\n` +
+      `GPS timestamp difference: ${Math.abs(sample.t - fix.t).toFixed(3)} s\n` +
+      `Reported horizontal error: ${
+        Number.isFinite(fix.accuracy)
+          ? fix.accuracy.toFixed(1) + " m"
+          : "unknown"
+      }`;
+
+    if (map && routeLayer) {
+      if (!selectedMarker) {
+        selectedMarker = L.circleMarker([fix.lat, fix.lon], {
+          radius: 8,
+          color: "#dc4545",
+          fillOpacity: 0.8
+        }).addTo(routeLayer);
+      } else {
+        selectedMarker.setLatLng([fix.lat, fix.lon]);
+      }
+    }
+  } else {
+    text +=
+      "No GPS match: outside the accepted GPS span or over 2 seconds away.";
+
+    if (selectedMarker && routeLayer) {
+      routeLayer.removeLayer(selectedMarker);
+      selectedMarker = null;
+    }
+  }
+
+  $("reading").textContent = text;
+  drawChart(sample);
+}
+
+$("load").onclick = async () => {
+  const version = ++loadVersion;
+
+  $("load").disabled = true;
+  $("results").hidden = true;
+
+  samples = [];
+  fixes = [];
+  matches = [];
+
+  clearCandidates();
+
+  if (routeLayer) routeLayer.clearLayers();
+  selectedMarker = null;
+
+  $("status").textContent = "Reading and matching files…";
+
+  try {
+    const maxError = numeric($("accuracy").value);
+
+    if (!(maxError > 0 && maxError <= 10000))
+      throw new Error("Enter a GPS error limit from 1 to 10000 metres.");
+
+    const [acceleration, location] = await Promise.all([
+      readFile($("accelFile")),
+      readFile($("gpsFile"))
+    ]);
+
+    if (version !== loadVersion) return;
+
+    const at = column(acceleration, ["time"]);
+    const ax = column(acceleration, ["x"]);
+    const ay = column(acceleration, ["y"]);
+    const az = column(acceleration, ["z"]);
+
+    const gt = column(location, ["time"]);
+    const latitude = column(location, ["latitude", "lat"]);
+    const longitude = column(location, ["longitude", "lon", "lng"]);
+    const accuracy = column(
+      location, ["horizontalaccuracy", "accuracy"], false
+    );
+
+    let base = null;
+
+    for (const row of acceleration.rows) {
+      if (row.length !== acceleration.headers.length) continue;
+
+      const values = [row[ax], row[ay], row[az]].map(numeric);
+      if (!values.every(Number.isFinite)) continue;
+      if (!Number.isFinite(Math.hypot(...values))) continue;
+
+      try {
+        const time = timestamp(row[at]);
+        if (base === null || time < base) base = time;
+      } catch {}
+    }
+
+    if (base === null)
+      throw new Error("No valid acceleration rows with nanosecond timestamps.");
+
+    let badAcceleration = 0;
+    let badGPS = 0;
+
+    acceleration.rows.forEach(row => {
+      try {
+        if (row.length !== acceleration.headers.length) throw new Error();
+
+        const x = numeric(row[ax]);
+        const y = numeric(row[ay]);
+        const z = numeric(row[az]);
+        const magnitude = Math.hypot(x, y, z);
+
+        if (![x, y, z, magnitude].every(Number.isFinite))
+          throw new Error();
+
+        samples.push({
+          timestamp: row[at].trim(),
+          t: elapsedSeconds(row[at], base),
+          x, y, z, magnitude
+        });
+      } catch {
+        badAcceleration++;
+      }
+    });
+
+    samples.sort((a, b) => a.t - b.t);
+    samples.forEach((sample, index) => sample.index = index);
+
+    const end = samples[samples.length - 1].t;
+
+    location.rows.forEach(row => {
+      try {
+        if (row.length !== location.headers.length) throw new Error();
+
+        const time = elapsedSeconds(row[gt], base);
+        const lat = numeric(row[latitude]);
+        const lon = numeric(row[longitude]);
+        const error = accuracy < 0 ? NaN : numeric(row[accuracy]);
+
+        if (
+          !Number.isFinite(lat) ||
+          !Number.isFinite(lon) ||
+          Math.abs(lat) > 90 ||
+          Math.abs(lon) > 180 ||
+          time < 0 ||
+          time > end ||
+          (Number.isFinite(error) && (error < 0 || error > maxError))
+        ) {
+          throw new Error();
+        }
+
+        fixes.push({
+          timestamp: row[gt].trim(),
+          t: time,
+          lat,
+          lon,
+          accuracy: error
+        });
+      } catch {
+        badGPS++;
+      }
+    });
+
+    fixes.sort((a, b) => a.t - b.t);
+    matches = samples.map(sample => nearestFix(sample.t));
+
+    const matchedCount = matches.filter(Boolean).length;
+
+    $("sampleCount").textContent = samples.length.toLocaleString();
+    $("gpsCount").textContent = fixes.length.toLocaleString();
+    $("matchedCount").textContent = matchedCount.toLocaleString();
+
+    $("slider").max = samples.length - 1;
+    $("slider").value = 0;
+    $("results").hidden = false;
+
+    prepareChart();
+    setupMap();
+    showReading();
+
+    $("status").textContent =
+      `Loaded ${samples.length.toLocaleString()} acceleration readings and ` +
+      `${fixes.length.toLocaleString()} accepted GPS fixes.\n` +
+      `Excluded ${badAcceleration} invalid acceleration rows and ` +
+      `${badGPS} invalid, out-of-recording, or low-accuracy GPS rows.\n` +
+      "GPS matching uses the nearest accepted fix within 2 seconds, only " +
+      "inside the accepted GPS time span. Positions are not extrapolated.\n" +
+      (matchedCount
+        ? "Move the slider or run candidate detection below."
+        : "No readings matched GPS. Check that both files are from the same recording.");
+
+  } catch (error) {
+    samples = [];
+    fixes = [];
+    matches = [];
+    $("results").hidden = true;
+    $("status").textContent = "Could not load recording: " + error.message;
+  } finally {
+    $("load").disabled = false;
+  }
+};
+
+function median(values) {
+  const sorted = values.slice().sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+
+  return sorted.length % 2
+    ? sorted[middle]
+    : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+function inspectEvent(event) {
+  $("slider").value = event.sampleIndex;
+  showReading();
+
+  if (map && event.fix) {
+    map.panTo([event.fix.lat, event.fix.lon]);
+  }
+}
+
+function renderCandidates() {
+  $("eventRows").replaceChildren();
+
+  $("emptyEvents").hidden = candidates.length > 0;
+  $("emptyEvents").textContent =
+    "No events exceeded the selected threshold. This is a valid result.";
+
+  if (map && window.L) {
+    eventLayer = L.layerGroup().addTo(map);
+  }
+
+  candidates.forEach((event, index) => {
+    const row = document.createElement("tr");
+
+    const values = [
+      index + 1,
+      event.time.toFixed(2),
+      event.peak.toFixed(2),
+      event.rms.toFixed(2),
+      event.fix
+        ? `${event.fix.lat.toFixed(6)}, ${event.fix.lon.toFixed(6)}`
+        : "Unavailable"
+    ];
+
+    values.forEach(value => {
+      const cell = document.createElement("td");
+      cell.textContent = value;
+      row.appendChild(cell);
+    });
+
+    const action = document.createElement("td");
+    const button = document.createElement("button");
+
+    button.textContent = "Inspect";
+    button.onclick = () => inspectEvent(event);
+
+    action.appendChild(button);
+    row.appendChild(action);
+    $("eventRows").appendChild(row);
+
+    if (eventLayer && event.fix) {
+      const fix = event.fix;
+      const popup = document.createElement("div");
+
+      popup.textContent =
+        `Unverified road event ${index + 1}. ` +
+        `Time: ${event.time.toFixed(2)} s. ` +
+        `Peak magnitude: ${event.peak.toFixed(2)} m/s². ` +
+        `Maximum flagged-window RMS: ${event.rms.toFixed(2)} m/s². ` +
+        `GPS timestamp difference: ${Math.abs(event.time - fix.t).toFixed(2)} s. ` +
+        `Reported horizontal error: ${
+          Number.isFinite(fix.accuracy)
+            ? fix.accuracy.toFixed(1) + " m"
+            : "unknown"
+        }. This is not a confirmed pothole.`;
+
+      L.circleMarker([fix.lat, fix.lon], {
+        radius: 10,
+        color: "#c96b00",
+        fillColor: "#ff9f29",
+        fillOpacity: 0.85,
+        weight: 2
+      })
+      .bindPopup(popup)
+      .on("click", () => inspectEvent(event))
+      .addTo(eventLayer);
+    }
+  });
+
+  $("candidateCount").textContent = candidates.length;
+  $("exportEvents").disabled = candidates.length === 0;
+}
+
+$("detect").onclick = () => {
+  clearCandidates();
+
+  if (!samples.length) {
+    $("eventStatus").textContent = "Load a recording first.";
+    return;
+  }
+
+  const windows = new Map();
+
+  samples.forEach(sample => {
+    const id = Math.floor(sample.t / 0.5);
+
+    if (!windows.has(id)) {
+      windows.set(id, {
+        count: 0,
+        sumSquared: 0,
+        firstTime: sample.t,
+        lastTime: sample.t,
+        peak: sample
+      });
+    }
+
+    const window = windows.get(id);
+
+    window.count++;
+    window.sumSquared += sample.magnitude ** 2;
+    window.lastTime = sample.t;
+
+    if (sample.magnitude > window.peak.magnitude)
+      window.peak = sample;
+  });
+
+  const usable = [...windows.values()]
+    .filter(window =>
+      window.count >= 5 &&
+      window.lastTime - window.firstTime >= 0.2 &&
+      Number.isFinite(window.sumSquared)
+    )
+    .map(window => ({
+      ...window,
+      rms: Math.sqrt(window.sumSquared / window.count)
+    }));
+
+  if (usable.length < 10) {
+    $("eventStatus").textContent =
+      "Not enough complete windows. Use a longer recording.";
+    return;
+  }
+
+  const scores = usable.map(window => window.rms);
+  const baseline = median(scores);
+  const mad = median(scores.map(score => Math.abs(score - baseline)));
+
+  const automaticThreshold =
+    baseline + Math.max(0.5, 6 * 1.4826 * mad);
+
+  const entered = $("threshold").value.trim();
+  const threshold = entered === ""
+    ? automaticThreshold
+    : Number(entered);
+
+  if (!Number.isFinite(threshold) || threshold <= 0) {
+    $("eventStatus").textContent =
+      "Enter a positive threshold or leave it blank.";
+    return;
+  }
+
+  let cluster = null;
+
+  function finishCluster() {
+    if (!cluster) return;
+
+    candidates.push({
+      time: cluster.peak.t,
+      start: cluster.firstTime,
+      end: cluster.lastTime,
+      sampleIndex: cluster.peak.index,
+      peak: cluster.peak.magnitude,
+      rms: cluster.rms,
+      threshold,
+      fix: nearestFix(cluster.peak.t)
+    });
+
+    cluster = null;
+  }
+
+  usable.forEach(window => {
+    if (window.rms <= threshold) {
+      finishCluster();
+      return;
+    }
+
+    if (
+      cluster &&
+      window.firstTime - cluster.lastTime <= 0.15
+    ) {
+      cluster.lastTime = window.lastTime;
+      cluster.rms = Math.max(cluster.rms, window.rms);
+
+      if (window.peak.magnitude > cluster.peak.magnitude)
+        cluster.peak = window.peak;
+    } else {
+      finishCluster();
+
+      cluster = {
+        firstTime: window.firstTime,
+        lastTime: window.lastTime,
+        peak: window.peak,
+        rms: window.rms
+      };
+    }
+  });
+
+  finishCluster();
+  renderCandidates();
+
+  const located = candidates.filter(event => event.fix).length;
+
+  $("eventStatus").textContent =
+    `Threshold: ${threshold.toFixed(2)} m/s² ` +
+    `(${entered === "" ? "automatic" : "manual"}).\n` +
+    `${candidates.length} unverified candidate events; ` +
+    `${located} have matched GPS locations.\n` +
+    "Inspect the orange markers or report table. These events have not " +
+    "been validated as potholes.";
+};
+
+function downloadCSV(filename, lines) {
+  const url = URL.createObjectURL(
+    new Blob([lines.join("\r\n")], {
+      type: "text/csv;charset=utf-8"
+    })
+  );
+
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+$("exportSamples").onclick = () => {
+  const lines = [
+    "timestamp_ns,elapsed_s,x_m_s2,y_m_s2,z_m_s2,magnitude_m_s2," +
+    "latitude,longitude,gps_timestamp_ns,gps_time_difference_s,horizontal_accuracy_m"
+  ];
+
+  samples.forEach((sample, index) => {
+    const fix = matches[index];
+
+    lines.push([
+      sample.timestamp,
+      sample.t,
+      sample.x,
+      sample.y,
+      sample.z,
+      sample.magnitude,
+      fix ? fix.lat : "",
+      fix ? fix.lon : "",
+      fix ? fix.timestamp : "",
+      fix ? Math.abs(sample.t - fix.t) : "",
+      fix && Number.isFinite(fix.accuracy) ? fix.accuracy : ""
+    ].join(","));
+  });
+
+  downloadCSV("AsphaltIQ_acceleration_with_GPS.csv", lines);
+};
+
+$("exportEvents").onclick = () => {
+  const lines = [
+    "event_id,peak_time_s,start_time_s,end_time_s,peak_magnitude_m_s2," +
+    "max_flagged_window_rms_m_s2,threshold_m_s2,latitude,longitude," +
+    "gps_time_difference_s,horizontal_accuracy_m,status"
+  ];
+
+  candidates.forEach((event, index) => {
+    const fix = event.fix;
+
+    lines.push([
+      index + 1,
+      event.time,
+      event.start,
+      event.end,
+      event.peak,
+      event.rms,
+      event.threshold,
+      fix ? fix.lat : "",
+      fix ? fix.lon : "",
+      fix ? Math.abs(event.time - fix.t) : "",
+      fix && Number.isFinite(fix.accuracy) ? fix.accuracy : "",
+      "unverified_vibration_candidate"
+    ].join(","));
+  });
+
+  downloadCSV("AsphaltIQ_candidate_events.csv", lines);
+};
+
+$("slider").addEventListener("input", showReading);
+
+window.addEventListener("resize", () => {
+  if (samples.length && !$("results").hidden) showReading();
+});
+</script>
+<script src="backend.js"></script>
+</body>
+</html>
